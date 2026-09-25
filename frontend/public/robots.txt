@@ -1,0 +1,3 @@
+# KinoBot Admin
+User-agent: *
+Disallow: /

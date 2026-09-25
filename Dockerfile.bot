@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source
+COPY bot/ ./bot/
+COPY database/ ./database/
+COPY scripts/ ./scripts/
+COPY config.py .
+COPY main_bot.py .
+
+# Create logs dir
+RUN mkdir -p /app/logs
+
+CMD ["python", "main_bot.py"]
