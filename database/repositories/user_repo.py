@@ -35,14 +35,27 @@ class UserRepository(BaseRepository[User]):
             user.last_activity = datetime.now(timezone.utc)
             await self.session.flush()
             return user, False
-        user = await self.create(
-            telegram_id=telegram_id,
-            first_name=first_name,
-            username=username,
-            last_name=last_name,
-            language_code=language_code,
-        )
-        return user, True
+        try:
+            user = await self.create(
+                telegram_id=telegram_id,
+                first_name=first_name,
+                username=username,
+                last_name=last_name,
+                language_code=language_code,
+            )
+            return user, True
+        except Exception:
+            # Handle concurrent insert race condition gracefully
+            existing = await self.get_by_telegram_id(telegram_id)
+            if existing:
+                existing.first_name = first_name
+                existing.username = username
+                existing.last_name = last_name
+                existing.last_activity = datetime.now(timezone.utc)
+                await self.session.flush()
+                return existing, False
+            raise
+
 
     async def block(self, telegram_id: int) -> None:
         await self.session.execute(
