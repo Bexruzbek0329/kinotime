@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="KinoBot Admin API",
     version="1.0.0",
-    docs_url="/api/docs" if settings.debug else None,
+    docs_url="/api/docs",
     redoc_url=None,
     lifespan=lifespan,
 )
@@ -59,3 +59,10 @@ app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("IP", "0.0.0.0")
+    uvicorn.run("main_api:app", host=host, port=port)
+
