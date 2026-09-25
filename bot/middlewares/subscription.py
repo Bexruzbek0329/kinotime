@@ -43,17 +43,25 @@ class SubscriptionMiddleware(BaseMiddleware):
         user_id: int | None = None
 
         if isinstance(event, Message):
+            text = (event.text or "").strip()
+            if text.startswith(("/start", "/admin", "/login", "/fileid")):
+                return await handler(event, data)
             user_id = event.from_user.id if event.from_user else None
         elif isinstance(event, CallbackQuery):
             cb_data = event.data or ""
-            if cb_data == "check:subscription":
-                # Let the dedicated subscription callback handler process this
+            if cb_data == "check:subscription" or cb_data.startswith("fileid_toggle:"):
+                # Let the dedicated subscription or fileid callback handler process this
                 return await handler(event, data)
             user_id = event.from_user.id if event.from_user else None
         else:
             return await handler(event, data)
 
         if not user_id:
+            return await handler(event, data)
+
+        # Exempt admins from mandatory channel subscription
+        db_user = data.get("db_user")
+        if user_id in settings.admin_id_list or (db_user and db_user.is_admin):
             return await handler(event, data)
 
         channel_repo = ChannelRepository(session)
