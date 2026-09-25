@@ -8,11 +8,26 @@ import structlog
 
 log = structlog.get_logger()
 
+import asyncio
+import os
+from main_bot import main as run_bot
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("api_starting")
+    bot_task = None
+    if os.getenv("RUN_BOT", "true").lower() in ("true", "1", "yes"):
+        bot_task = asyncio.create_task(run_bot())
+        log.info("background_bot_task_launched")
     yield
+    if bot_task:
+        bot_task.cancel()
+        try:
+            await bot_task
+        except (asyncio.CancelledError, Exception):
+            pass
     log.info("api_stopped")
+
 
 app = FastAPI(
     title="KinoBot Admin API",

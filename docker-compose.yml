@@ -63,10 +63,12 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: kinobot_api
-    restart: unless-stopped
     env_file: .env
+    environment:
+      - RUN_BOT=false
     ports:
       - "8000:8000"
+
     depends_on:
       postgres:
         condition: service_healthy
