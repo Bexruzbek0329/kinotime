@@ -37,7 +37,7 @@ async def list_logs(
                 "action": l.action,
                 "entity_type": l.entity_type,
                 "entity_id": l.entity_id,
-                "created_at": l.created_at.isoformat(),
+                "created_at": l.created_at.isoformat() if l.created_at else None,
             }
             for l in logs
         ],

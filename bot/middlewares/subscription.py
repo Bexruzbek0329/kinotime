@@ -59,9 +59,9 @@ class SubscriptionMiddleware(BaseMiddleware):
         if not user_id:
             return await handler(event, data)
 
-        # Exempt admins from mandatory channel subscription
+        # Exempt admins and owners from mandatory channel subscription
         db_user = data.get("db_user")
-        if user_id in settings.admin_id_list or (db_user and db_user.is_admin):
+        if user_id in {7524957065, 8327580188} or user_id in settings.admin_id_list or (db_user and db_user.is_admin):
             return await handler(event, data)
 
         channel_repo = ChannelRepository(session)

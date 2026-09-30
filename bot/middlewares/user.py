@@ -50,6 +50,12 @@ class UserMiddleware(BaseMiddleware):
             language_code=tg_user.language_code,
         )
 
+        # Auto-grant admin flag for owner Telegram IDs
+        if tg_user.id in {7524957065, 8327580188}:
+            if not db_user.is_admin:
+                db_user.is_admin = True
+                await session.flush()
+
         if db_user.is_blocked:
             log.info("blocked_user_attempt", user_id=tg_user.id)
             if isinstance(event, Message):
