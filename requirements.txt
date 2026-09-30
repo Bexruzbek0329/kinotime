@@ -19,4 +19,5 @@ python-dotenv>=1.0.1
 structlog>=24.4.0
 tenacity>=9.0.0
 cachetools>=5.5.0
+yt-dlp>=2026.8.19
 pytest>=7.4.0

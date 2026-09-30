@@ -41,6 +41,7 @@ from bot.handlers import (
     serial,
     start,
     subscription,
+    url_downloader,
 )
 
 # ---------------------------------------------------------------------------
@@ -172,6 +173,7 @@ async def main() -> None:
     # Routers — errors router must be first so it can catch everything
     # ------------------------------------------------------------------
     dp.include_router(file_id_helper.router)  # Admin file_id helper — must be first
+    dp.include_router(url_downloader.router)  # Admin video URL downloader
     dp.include_router(errors.router)
     dp.include_router(start.router)
     dp.include_router(subscription.router)
