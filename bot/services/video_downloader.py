@@ -3,6 +3,7 @@ import asyncio
 import os
 import tempfile
 import uuid
+import shutil
 from typing import Optional
 import httpx
 import structlog
@@ -20,15 +21,47 @@ def _download_with_ytdlp(url: str, dest_dir: str) -> Optional[dict]:
 
         out_template = os.path.join(dest_dir, f"{uuid.uuid4().hex}_%(id)s.%(ext)s")
 
+        has_ffmpeg = shutil.which("ffmpeg") is not None
+        if has_ffmpeg:
+            format_str = (
+                "best[filesize<48M]/"
+                "best[filesize_approx<48M]/"
+                "bestvideo[filesize<40M]+bestaudio[filesize<8M]/"
+                "bestvideo[filesize_approx<40M]+bestaudio[filesize_approx<8M]/"
+                "best[ext=mp4][height<=720]/"
+                "best[ext=mp4][height<=480]/"
+                "best[height<=480]/"
+                "best[ext=mp4][height<=360]/"
+                "worst[ext=mp4]/"
+                "worst/"
+                "best"
+            )
+        else:
+            format_str = (
+                "best[filesize<48M]/"
+                "best[filesize_approx<48M]/"
+                "best[ext=mp4][height<=720]/"
+                "best[ext=mp4][height<=480]/"
+                "best[height<=480]/"
+                "best[ext=mp4][height<=360]/"
+                "worst[ext=mp4]/"
+                "worst/"
+                "best"
+            )
+
         ydl_opts = {
-            # Prefer pre-merged mp4/single stream under 48MB so ffmpeg is not strictly required
-            "format": "best[ext=mp4][filesize<48M]/best[filesize<48M]/best[ext=mp4]/best",
+            "format": format_str,
             "outtmpl": out_template,
             "max_filesize": MAX_FILE_SIZE,
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
             "extract_flat": False,
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-us,en;q=0.5",
+            },
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
