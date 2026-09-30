@@ -41,14 +41,34 @@ async def _safe_run_bot() -> None:
             await asyncio.sleep(retry_delay)
 
 
+async def _keep_alive_pinger() -> None:
+    """Periodically ping public health endpoint through Alwaysdata proxy to keep upstream alive."""
+    await asyncio.sleep(20)
+    import httpx
+    target_url = os.getenv("KEEP_ALIVE_URL", "https://kinobotuz.alwaysdata.net/api/health")
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        while True:
+            try:
+                r = await client.get(target_url)
+                log.debug("keepalive_ping_sent", status=r.status_code)
+            except Exception as e:
+                log.debug("keepalive_ping_error", error=str(e))
+            await asyncio.sleep(35)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _bot_task, _bot_status
     log.info("api_starting")
+    ping_task = None
     if os.getenv("RUN_BOT", "true").lower() in ("true", "1", "yes"):
         _bot_task = asyncio.create_task(_safe_run_bot())
         log.info("background_bot_task_launched")
+    # Start self-pinging keepalive to prevent Alwaysdata from killing the process on idle
+    ping_task = asyncio.create_task(_keep_alive_pinger())
     yield
+    if ping_task:
+        ping_task.cancel()
     if _bot_task:
         _bot_task.cancel()
         try:
@@ -93,6 +113,7 @@ async def health():
         "status": "ok",
         "bot_status": _bot_status,
         "bot_error": _bot_error,
+        "version": "2026.09.30-keepalive",
     }
 
 

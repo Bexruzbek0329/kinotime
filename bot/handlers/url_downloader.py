@@ -60,6 +60,18 @@ async def process_video_url(
             pass
         return
 
+    if result.get("error") == "timeout":
+        try:
+            await status_msg.edit_text(
+                "⏱ <b>Yuklab olish vaqti tugadi (timeout).</b>\n\n"
+                "Server bu videoni yuklab olishga ulgurmadi yoki internet tezligi past.\n"
+                "<i>💡 Iltimos, qisqaroq video havolasini yuborib ko'ring.</i>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+        return
+
     if result.get("error") == "size_limit":
         size_mb = round(result.get("size", 0) / 1024 / 1024, 1)
         try:

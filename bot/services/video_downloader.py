@@ -57,6 +57,7 @@ def _download_with_ytdlp(url: str, dest_dir: str) -> Optional[dict]:
             "no_warnings": True,
             "noplaylist": True,
             "extract_flat": False,
+            "socket_timeout": 30,
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -151,16 +152,28 @@ async def download_video(url: str) -> Optional[dict]:
     """Download video from any web page or direct URL."""
     dest_dir = tempfile.gettempdir()
 
-    # 1. Try yt-dlp (handles YouTube, Instagram, TikTok, Facebook, Twitter, and hundreds of sites)
-    res = await asyncio.to_thread(_download_with_ytdlp, url, dest_dir)
-    if res:
-        return res
+    # 1. Try yt-dlp with hard timeout to prevent hanging
+    try:
+        res = await asyncio.wait_for(
+            asyncio.to_thread(_download_with_ytdlp, url, dest_dir),
+            timeout=180.0,
+        )
+        if res:
+            return res
+    except asyncio.TimeoutError:
+        log.warning("ytdlp_download_timeout", url=url)
+        return {"error": "timeout"}
+    except Exception as e:
+        log.warning("ytdlp_download_unexpected_error", error=str(e), url=url)
 
     # 2. Try direct streaming download for video files
     lower_url = url.lower()
     if any(ext in lower_url for ext in (".mp4", ".mov", ".webm", ".mkv", ".avi", "video")):
-        res_http = await _download_direct_http(url, dest_dir)
-        if res_http:
-            return res_http
+        try:
+            res_http = await asyncio.wait_for(_download_direct_http(url, dest_dir), timeout=60.0)
+            if res_http:
+                return res_http
+        except Exception as e:
+            log.warning("direct_http_download_unexpected_error", error=str(e), url=url)
 
     return None
