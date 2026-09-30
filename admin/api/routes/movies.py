@@ -80,7 +80,7 @@ def movie_to_out(movie: Movie) -> MovieOut:
     return MovieOut(
         id=movie.id,
         code=movie.code,
-        content_type=movie.content_type.value if movie.content_type else "movie",
+        content_type=movie.content_type.value if hasattr(movie.content_type, "value") else str(movie.content_type or "movie"),
         title=movie.title,
         original_title=movie.original_title,
         poster_file_id=movie.poster_file_id,
@@ -91,7 +91,7 @@ def movie_to_out(movie: Movie) -> MovieOut:
         total_seasons=movie.total_seasons,
         total_episodes=movie.total_episodes,
         imdb_rating=float(movie.imdb_rating) if movie.imdb_rating else None,
-        status=movie.status.value,
+        status=movie.status.value if hasattr(movie.status, "value") else str(movie.status),
         views_count=movie.views_count,
         created_at=movie.created_at,
         updated_at=movie.updated_at,
@@ -99,7 +99,7 @@ def movie_to_out(movie: Movie) -> MovieOut:
         videos=[
             {
                 "id": v.id,
-                "quality": v.quality.value,
+                "quality": v.quality.value if hasattr(v.quality, "value") else str(v.quality),
                 "telegram_file_id": v.telegram_file_id,
                 "duration_seconds": v.duration_seconds,
                 "file_size_bytes": v.file_size_bytes,
@@ -350,7 +350,8 @@ async def add_video(
     )
     session.add(video)
     await session.commit()
-    return {"id": video.id, "quality": video.quality.value}
+    q_str = video.quality.value if hasattr(video.quality, "value") else str(video.quality)
+    return {"id": video.id, "quality": q_str}
 
 
 @router.delete("/{movie_id}/videos/{video_id}")

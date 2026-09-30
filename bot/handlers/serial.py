@@ -335,19 +335,13 @@ async def cb_serial_episode(callback: CallbackQuery, session: AsyncSession) -> N
 
     caption = "\n".join(caption_lines)
 
-    try:
-        await callback.message.answer_video(
-            video=episode.telegram_file_id,
-            caption=caption,
-            reply_markup=video_kb,
-            parse_mode="Markdown",
-        )
-    except TelegramBadRequest as e:
-        log.warning("send_episode_video_failed", error=str(e), file_id=episode.telegram_file_id)
-        await callback.message.answer(
-            f"😕 {ep_num}-qism videosini yuklashda xatolik yuz berdi.\n\nFile ID tekshirilishi kerak.",
-            reply_markup=video_kb,
-        )
+    from bot.handlers.movie import _send_media_file
+    await _send_media_file(
+        msg_target=callback.message,
+        file_id=episode.telegram_file_id,
+        caption=caption,
+        reply_markup=video_kb,
+    )
 
 
 def _serial_dict(m) -> dict:

@@ -58,12 +58,20 @@ class MovieService:
             return None
 
         # Sort available qualities in canonical order
+        def _get_q(v) -> str:
+            q = getattr(v, "quality", None)
+            if hasattr(q, "value"):
+                return str(q.value)
+            return str(q) if q else "720p"
+
         qualities: List[str] = sorted(
-            [v.quality.value for v in movie.videos],
+            [_get_q(v) for v in movie.videos if v.telegram_file_id and v.telegram_file_id.strip()],
             key=lambda q: QUALITY_ORDER.index(q) if q in QUALITY_ORDER else 99,
         )
         video_map: dict[str, str] = {
-            v.quality.value: v.telegram_file_id for v in movie.videos
+            _get_q(v): v.telegram_file_id.strip()
+            for v in movie.videos
+            if v.telegram_file_id and v.telegram_file_id.strip()
         }
 
         is_favorite = False
@@ -85,13 +93,21 @@ class MovieService:
                 "duration_minutes": movie.duration_minutes,
                 "description": movie.description or "",
                 "views_count": movie.views_count,
-                "content_type": movie.content_type.value if hasattr(movie, "content_type") and movie.content_type else "movie",
+                "content_type": (
+                    movie.content_type.value
+                    if hasattr(getattr(movie, "content_type", None), "value")
+                    else str(getattr(movie, "content_type", "movie") or "movie")
+                ),
                 "total_seasons": getattr(movie, "total_seasons", None),
                 "total_episodes": getattr(movie, "total_episodes", None),
             },
             genres=genres,
             avg_rating=avg_rating,
-            show_quality_prompt=len(qualities) >= 2 if getattr(movie, "content_type", None) != "serial" else False,
+            show_quality_prompt=(
+                len(qualities) >= 2
+                if str(getattr(movie, "content_type", "")) != "serial"
+                else False
+            ),
         )
 
         episodes_list = [

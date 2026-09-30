@@ -26,6 +26,7 @@ from database.models.view import View
 from database.repositories.favorite_repo import FavoriteRepository
 from database.repositories.movie_repo import MovieRepository
 from database.repositories.rating_repo import RatingRepository
+from database.repositories.setting_repo import SettingRepository
 
 router = Router(name="movie")
 log = structlog.get_logger()
@@ -34,6 +35,137 @@ log = structlog.get_logger()
 # ===========================================================================
 # Helpers called by start.py and search.py (not callback-based)
 # ===========================================================================
+
+
+async def _send_poster_or_card(
+    msg_target,
+    poster_file_id: str | None,
+    caption: str,
+    reply_markup=None,
+) -> None:
+    """Send photo with caption (Markdown then plain fallback), or text message if no photo or photo fails."""
+    if poster_file_id and str(poster_file_id).strip():
+        clean_poster = str(poster_file_id).strip()
+        try:
+            await msg_target.answer_photo(
+                photo=clean_poster,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )
+            return
+        except TelegramBadRequest as e_photo_md:
+            log.warning("send_photo_md_failed", error=str(e_photo_md))
+            try:
+                await msg_target.answer_photo(
+                    photo=clean_poster,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                    parse_mode=None,
+                )
+                return
+            except TelegramBadRequest as e_photo_plain:
+                log.warning("send_photo_plain_failed", error=str(e_photo_plain))
+
+    # Send text fallback
+    try:
+        await msg_target.answer(
+            caption,
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+    except TelegramBadRequest as e_text_md:
+        log.warning("send_caption_md_failed", error=str(e_text_md))
+        await msg_target.answer(
+            caption,
+            reply_markup=reply_markup,
+            parse_mode=None,
+        )
+
+
+async def _send_media_file(
+    msg_target,
+    file_id: str,
+    caption: str,
+    reply_markup=None,
+) -> bool:
+    """
+    Deliver a video file reliably:
+    1. Try answer_video with Markdown.
+    2. If Markdown fails, try answer_video with plain text.
+    3. If answer_video fails (e.g. file is a Document or invalid video type), try answer_document with Markdown.
+    4. If Markdown fails on document, try answer_document with plain text.
+    5. If all fail, display an explicit message to user so it never fails silently.
+    """
+    clean_file_id = str(file_id).strip() if file_id else ""
+    if not clean_file_id:
+        await msg_target.answer("❌ Video fayli topilmadi (file_id kiritilmagan).")
+        return False
+
+    # 1. Try sending as Video with Markdown
+    try:
+        await msg_target.answer_video(
+            video=clean_file_id,
+            caption=caption,
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+        return True
+    except TelegramBadRequest as e_vid_md:
+        err_msg = str(e_vid_md).lower()
+        log.warning("send_video_md_failed", error=str(e_vid_md), file_id=clean_file_id)
+
+        # If entity parsing error, try video plain text
+        if "entities" in err_msg or "parse" in err_msg:
+            try:
+                await msg_target.answer_video(
+                    video=clean_file_id,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                    parse_mode=None,
+                )
+                return True
+            except TelegramBadRequest as e_vid_plain:
+                log.warning("send_video_plain_failed", error=str(e_vid_plain))
+                err_msg = str(e_vid_plain).lower()
+
+        # If video fails (e.g. Telegram says document type or other video constraint)
+        # Try sending as document
+        try:
+            await msg_target.answer_document(
+                document=clean_file_id,
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )
+            return True
+        except TelegramBadRequest as e_doc_md:
+            err_doc = str(e_doc_md).lower()
+            log.warning("send_document_md_failed", error=str(e_doc_md))
+            if "entities" in err_doc or "parse" in err_doc:
+                try:
+                    await msg_target.answer_document(
+                        document=clean_file_id,
+                        caption=caption,
+                        reply_markup=reply_markup,
+                        parse_mode=None,
+                    )
+                    return True
+                except Exception as e_doc_plain:
+                    log.error("send_document_plain_failed", error=str(e_doc_plain))
+
+            await msg_target.answer(
+                f"❌ Videoni yuborib bo'lmadi.\nTelegram xatosi: {str(e_doc_md)}",
+                reply_markup=back_to_menu_keyboard(),
+            )
+            return False
+    except Exception as exc:
+        log.error("send_media_file_unexpected", error=str(exc))
+        await msg_target.answer(
+            f"❌ Videoni yuborishda xatolik yuz berdi: {str(exc)}",
+            reply_markup=back_to_menu_keyboard(),
+        )
+        return False
 
 
 async def deliver_movie_content(
@@ -62,7 +194,10 @@ async def deliver_movie_content(
         return
 
     # If content is a serial, delegate to serial delivery with episode picker
-    if getattr(card["movie"], "content_type", None) == ContentType.serial:
+    movie_obj = card["movie"]
+    c_type = getattr(movie_obj, "content_type", None)
+    c_val = c_type.value if hasattr(c_type, "value") else str(c_type or "")
+    if c_val == "serial":
         from bot.handlers.serial import deliver_serial_content
         await deliver_serial_content(target, session, movie_id, user_id=user_id)
         return
@@ -71,11 +206,11 @@ async def deliver_movie_content(
     await movie_repo.increment_views(movie_id)
 
     num_qualities = len(card["qualities"])
-    movie_title = card["movie"].title
+    movie_title = movie_obj.title
 
     if num_qualities == 1:
         single_q = card["qualities"][0]
-        file_id = card["video_map"][single_q]
+        file_id = card["video_map"].get(single_q, "")
 
         # Log view in DB
         view = View(user_id=user_id, movie_id=movie_id, quality=single_q)
@@ -110,21 +245,18 @@ async def deliver_movie_content(
         if card["poster_file_id"]:
             # Admin rasm qo'shgan bo'lsa:
             # 1. Rasm va tavsif pastda tugmalarsiz chiqadi
-            try:
-                await msg_target.answer_photo(
-                    photo=card["poster_file_id"],
-                    caption=card["caption"],
-                    parse_mode="Markdown",
-                )
-            except TelegramBadRequest:
-                await msg_target.answer(card["caption"], parse_mode="Markdown")
-
+            await _send_poster_or_card(
+                msg_target=msg_target,
+                poster_file_id=card["poster_file_id"],
+                caption=card["caption"],
+                reply_markup=None,
+            )
             # 2. Keyin pastda video tashalsin tugmalari bilan
-            await msg_target.answer_video(
-                video=file_id,
+            await _send_media_file(
+                msg_target=msg_target,
+                file_id=file_id,
                 caption=vid_caption,
                 reply_markup=video_kb,
-                parse_mode="Markdown",
             )
         else:
             # Admin rasm QO'SHMAGAN bo'lsa:
@@ -135,22 +267,12 @@ async def deliver_movie_content(
             if len(full_caption) > 1024:
                 full_caption = full_caption[:1020] + "..."
 
-            try:
-                await msg_target.answer_video(
-                    video=file_id,
-                    caption=full_caption,
-                    reply_markup=video_kb,
-                    parse_mode="Markdown",
-                )
-            except TelegramBadRequest:
-                # Fallback if markdown or caption fails:
-                await msg_target.answer(card["caption"], parse_mode="Markdown")
-                await msg_target.answer_video(
-                    video=file_id,
-                    caption=f"\U0001f3ac *{movie_title}* • {single_q}",
-                    reply_markup=video_kb,
-                    parse_mode="Markdown",
-                )
+            await _send_media_file(
+                msg_target=msg_target,
+                file_id=file_id,
+                caption=full_caption,
+                reply_markup=video_kb,
+            )
 
     elif num_qualities >= 2:
         # 2 xil va undan ortiq sifatda bo'lsa: pastda alohida sifat tugmalari
@@ -161,18 +283,12 @@ async def deliver_movie_content(
             user_rating=card["user_rating"],
             bot_username=settings.bot_username,
         )
-        if card["poster_file_id"]:
-            try:
-                await msg_target.answer_photo(
-                    photo=card["poster_file_id"],
-                    caption=card["caption"],
-                    reply_markup=kb,
-                    parse_mode="Markdown",
-                )
-            except TelegramBadRequest:
-                await msg_target.answer(card["caption"], reply_markup=kb, parse_mode="Markdown")
-        else:
-            await msg_target.answer(card["caption"], reply_markup=kb, parse_mode="Markdown")
+        await _send_poster_or_card(
+            msg_target=msg_target,
+            poster_file_id=card["poster_file_id"],
+            caption=card["caption"],
+            reply_markup=kb,
+        )
 
     else:
         # Video yuklanmagan bo'lsa
@@ -182,18 +298,12 @@ async def deliver_movie_content(
             user_rating=card["user_rating"],
             bot_username=settings.bot_username,
         )
-        if card["poster_file_id"]:
-            try:
-                await msg_target.answer_photo(
-                    photo=card["poster_file_id"],
-                    caption=card["caption"],
-                    reply_markup=kb,
-                    parse_mode="Markdown",
-                )
-            except TelegramBadRequest:
-                await msg_target.answer(card["caption"], reply_markup=kb, parse_mode="Markdown")
-        else:
-            await msg_target.answer(card["caption"], reply_markup=kb, parse_mode="Markdown")
+        await _send_poster_or_card(
+            msg_target=msg_target,
+            poster_file_id=card["poster_file_id"],
+            caption=card["caption"],
+            reply_markup=kb,
+        )
 
 
 async def send_movie_card(
@@ -240,10 +350,23 @@ async def cb_movie_show(
     db_user,
 ) -> None:
     """Display the movie card after the user selects a title from a list."""
-    movie_id = int(callback.data.split(":")[2])
-    user_id = db_user.id if db_user else None
-    await callback.answer()
-    await deliver_movie_content(callback.message, session, movie_id, user_id=user_id)
+    try:
+        movie_id = int(callback.data.split(":")[2])
+        user_id = db_user.id if db_user else None
+        try:
+            await callback.answer()
+        except Exception:
+            pass
+        await deliver_movie_content(callback.message, session, movie_id, user_id=user_id)
+    except Exception as exc:
+        log.error("cb_movie_show_failed", error=str(exc), exc_info=True)
+        try:
+            await callback.message.answer(
+                f"❌ Kinoni ochishda xatolik yuz berdi: {str(exc)}",
+                reply_markup=back_to_menu_keyboard(),
+            )
+        except Exception:
+            pass
 
 
 # ===========================================================================
@@ -258,62 +381,81 @@ async def cb_movie_quality(
     db_user,
 ) -> None:
     """Send the video file for the selected quality and log a view record."""
-    parts = callback.data.split(":")
-    movie_id = int(parts[2])
-    quality = parts[3]
+    try:
+        parts = callback.data.split(":")
+        movie_id = int(parts[2])
+        quality = parts[3]
 
-    movie_repo = MovieRepository(session)
-    movie = await movie_repo.get_by_id_published(movie_id)
-    if not movie:
-        await callback.answer("\U0001f614 Kino topilmadi.", show_alert=True)
-        return
+        movie_repo = MovieRepository(session)
+        movie = await movie_repo.get_by_id_published(movie_id)
+        if not movie:
+            await callback.answer("\U0001f614 Kino topilmadi.", show_alert=True)
+            return
 
-    video = next((v for v in movie.videos if v.quality.value == quality), None)
-    if not video:
-        await callback.answer("\U0001f4fd Bu sifat mavjud emas.", show_alert=True)
-        return
+        def _match_quality(v, q: str) -> bool:
+            v_q = getattr(v, "quality", None)
+            v_str = v_q.value if hasattr(v_q, "value") else str(v_q)
+            return v_str == q
 
-    # Persist view record
-    view = View(
-        user_id=db_user.id if db_user else None,
-        movie_id=movie_id,
-        quality=quality,
-    )
-    session.add(view)
+        video = next((v for v in movie.videos if _match_quality(v, quality)), None)
+        if not video or not video.telegram_file_id:
+            await callback.answer("\U0001f4fd Bu sifat mavjud emas.", show_alert=True)
+            return
 
-    # Check sponsor ads
-    setting_repo = SettingRepository(session)
-    s_settings = await setting_repo.bulk_get([
-        "sponsor_ad_enabled",
-        "sponsor_ad_text",
-        "sponsor_ad_button_text",
-        "sponsor_ad_button_url",
-    ])
-    sp_enabled = s_settings.get("sponsor_ad_enabled") == "true"
-    sp_text = s_settings.get("sponsor_ad_text", "").strip() if sp_enabled else ""
-    sp_btn_text = s_settings.get("sponsor_ad_button_text", "").strip() if sp_enabled else None
-    sp_btn_url = s_settings.get("sponsor_ad_button_url", "").strip() if sp_enabled else None
+        # Persist view record
+        view = View(
+            user_id=db_user.id if db_user else None,
+            movie_id=movie_id,
+            quality=quality,
+        )
+        session.add(view)
 
-    video_kb = single_video_keyboard(
-        movie_id=movie_id,
-        is_favorite=await FavoriteRepository(session).is_favorite(db_user.id, movie_id) if db_user else False,
-        user_rating=await RatingRepository(session).get_user_rating(db_user.id, movie_id) if db_user else None,
-        bot_username=settings.bot_username,
-        sponsor_button_text=sp_btn_text,
-        sponsor_button_url=sp_btn_url,
-    )
-    caption = f"\U0001f3ac *{movie.title}* • {quality}"
-    if sp_text:
-        caption += f"\n\n{sp_text}"
+        # Check sponsor ads
+        setting_repo = SettingRepository(session)
+        s_settings = await setting_repo.bulk_get([
+            "sponsor_ad_enabled",
+            "sponsor_ad_text",
+            "sponsor_ad_button_text",
+            "sponsor_ad_button_url",
+        ])
+        sp_enabled = s_settings.get("sponsor_ad_enabled") == "true"
+        sp_text = s_settings.get("sponsor_ad_text", "").strip() if sp_enabled else ""
+        sp_btn_text = s_settings.get("sponsor_ad_button_text", "").strip() if sp_enabled else None
+        sp_btn_url = s_settings.get("sponsor_ad_button_url", "").strip() if sp_enabled else None
 
-    await callback.answer(f"\U0001f3a5 {quality} yuborilmoqda...")
-    await callback.message.answer_video(
-        video=video.telegram_file_id,
-        caption=caption,
-        reply_markup=video_kb,
-        parse_mode="Markdown",
-    )
-    log.info("movie_viewed", movie_id=movie_id, quality=quality, user_id=db_user.id if db_user else None)
+        video_kb = single_video_keyboard(
+            movie_id=movie_id,
+            is_favorite=await FavoriteRepository(session).is_favorite(db_user.id, movie_id) if db_user else False,
+            user_rating=await RatingRepository(session).get_user_rating(db_user.id, movie_id) if db_user else None,
+            bot_username=settings.bot_username,
+            sponsor_button_text=sp_btn_text,
+            sponsor_button_url=sp_btn_url,
+        )
+        caption = f"\U0001f3ac *{movie.title}* • {quality}"
+        if sp_text:
+            caption += f"\n\n{sp_text}"
+
+        try:
+            await callback.answer(f"\U0001f3a5 {quality} yuborilmoqda...")
+        except Exception:
+            pass
+
+        await _send_media_file(
+            msg_target=callback.message,
+            file_id=video.telegram_file_id,
+            caption=caption,
+            reply_markup=video_kb,
+        )
+        log.info("movie_viewed", movie_id=movie_id, quality=quality, user_id=db_user.id if db_user else None)
+    except Exception as exc:
+        log.error("cb_movie_quality_failed", error=str(exc), exc_info=True)
+        try:
+            await callback.message.answer(
+                f"❌ Videoni yuklashda xatolik yuz berdi: {str(exc)}",
+                reply_markup=back_to_menu_keyboard(),
+            )
+        except Exception:
+            pass
 
 
 # ===========================================================================
@@ -529,7 +671,3 @@ async def cb_nav_main(
     await callback.message.answer(
         msg, reply_markup=main_menu_keyboard(), parse_mode="Markdown"
     )
-
-
-# Local import to satisfy nav:main above
-from database.repositories.setting_repo import SettingRepository  # noqa: E402
