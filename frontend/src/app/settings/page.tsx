@@ -137,6 +137,55 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* File ID Mode for Admins Toggle Card */}
+        <div className="card space-y-4 border border-indigo-100 dark:border-indigo-900/30">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📁</span>
+                <h3 className="font-bold text-gray-900 dark:text-white text-base">
+                  Adminlar uchun File ID olish rejimi
+                </h3>
+              </div>
+              <p className="text-gray-500 text-xs max-w-xl">
+                Bu rejim yoqilgan bo'lsa, faqat bot adminlari rasm, video, GIF yoki fayl yuborganida bot ularga <code>file_id</code> va texnik ma'lumotlarni chiqarib beradi. O'chirilganda yoki oddiy foydalanuvchilar media yuborganida, bot hech narsa chiqarmaydi.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const current = settings['file_id_mode_enabled'] !== 'false';
+                  const nextVal = current ? 'false' : 'true';
+                  setVal('file_id_mode_enabled', nextVal);
+                  saveMut.mutate({ ...settings, file_id_mode_enabled: nextVal });
+                }}
+                className={`relative inline-flex h-7 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  settings['file_id_mode_enabled'] !== 'false'
+                    ? 'bg-indigo-600'
+                    : 'bg-gray-300 dark:bg-gray-700'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    settings['file_id_mode_enabled'] !== 'false'
+                      ? 'translate-x-7'
+                      : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <span className={`text-xs font-bold ${
+                settings['file_id_mode_enabled'] !== 'false'
+                  ? 'text-indigo-600 dark:text-indigo-400'
+                  : 'text-gray-400'
+              }`}>
+                {settings['file_id_mode_enabled'] !== 'false' ? '🟢 YOQILGAN' : '🔴 O\'CHIRILGAN'}
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* 1. STARTDAN OLDINGI OYNA ("What can this bot do?") */}
         <div className="card space-y-5 border-2 border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.03] via-transparent to-purple-500/[0.03]">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800 gap-2">

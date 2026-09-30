@@ -107,6 +107,8 @@ export const getBroadcastStatus = (id: string) =>
 export const getAdmins = () => api.get('/api/admins').then((r) => r.data);
 export const createAdmin = (data: unknown) =>
   api.post('/api/auth/admins', data).then((r) => r.data);
+export const updateAdmin = (id: number, data: unknown) =>
+  api.put(`/api/admins/${id}`, data).then((r) => r.data);
 export const deleteAdmin = (id: number) =>
   api.delete(`/api/admins/${id}`).then((r) => r.data);
 

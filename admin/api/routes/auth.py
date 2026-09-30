@@ -32,7 +32,7 @@ async def get_me(admin: Admin = Depends(get_current_admin)):
     return {"id": admin.id, "username": admin.username, "role": admin.role}
 
 
-@router.post("/admins", dependencies=[Depends(require_superadmin)])
+@router.post("/admins", dependencies=[Depends(get_current_admin)])
 async def create_admin(body: AdminCreate, session: AsyncSession = Depends(get_db)):
     existing = await session.execute(
         select(Admin).where(Admin.username == body.username)

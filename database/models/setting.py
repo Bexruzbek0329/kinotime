@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
     "sponsor_ad_text": "",
     "sponsor_ad_button_text": "",
     "sponsor_ad_button_url": "",
+    "file_id_mode_enabled": "true",
 }
 
 
